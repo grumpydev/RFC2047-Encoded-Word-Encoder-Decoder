@@ -88,5 +88,15 @@ namespace EncodedWord
 
             Assert.Equal(@"=Z4Hola, señor!", output);
         }
+
+        [Fact]
+        public void Should_handle_encoded_words_separated_by_cr_lf_space()
+        {
+            var input = "=?iso-8859-1?q?=A1Hola,_se=F1or!?=\r\n =?iso-8859-1?q?=A1Hola,_se=F1or!?=";
+
+            var output = RFC2047.Decode(input);
+
+            Assert.Equal(@"¡Hola, señor!¡Hola, señor!", output);
+        }
     }
 }

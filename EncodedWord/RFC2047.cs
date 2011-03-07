@@ -30,6 +30,16 @@
         private static readonly Regex EncodedWordFormatRegEx = new Regex(@"=\?(?<charset>.*?)\?(?<encoding>[qQbB])\?(?<encodedtext>.*?)\?=", RegexOptions.Singleline | RegexOptions.Compiled);
 
         /// <summary>
+        /// Regex for removing CRLF SPACE separators from between encoded words
+        /// </summary>
+        private static readonly Regex EncodedWordSeparatorRegEx = new Regex(@"\?=\r\n =\?", RegexOptions.Compiled);
+
+        /// <summary>
+        /// Replacement string for removing CRLF SPACE separators
+        /// </summary>
+        private const string SeparatorReplacement = @"?==?";
+
+        /// <summary>
         /// Regex for "Q-Encoding" hex bytes from http://tools.ietf.org/html/rfc2047#section-4.2
         /// </summary>
         private static readonly Regex QEncodingHexCodeRegEx = new Regex(@"(=(?<hexcode>[0-9a-fA-F][0-9a-fA-F]))", RegexOptions.Compiled);
@@ -69,8 +79,11 @@
         /// <returns>Decoded string</returns>
         public static string Decode(string encodedString)
         {
+            // Remove separators
+            var decodedString = EncodedWordSeparatorRegEx.Replace(encodedString, SeparatorReplacement);
+
             return EncodedWordFormatRegEx.Replace(
-                encodedString,
+                decodedString,
                 m =>
                 {
                     var contentEncoding = GetContentEncodingType(m.Groups["encoding"].Value);
