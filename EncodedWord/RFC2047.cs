@@ -12,6 +12,7 @@
 ﻿namespace EncodedWord
 {
     using System;
+    using System.Collections.Generic;
     using System.Globalization;
     using System.Linq;
     using System.Text;
@@ -40,6 +41,11 @@
         private const string SeparatorReplacement = @"?==?";
 
         /// <summary>
+        /// The maximum line length allowed
+        /// </summary>
+        private const int MaxLineLength = 75;
+
+        /// <summary>
         /// Regex for "Q-Encoding" hex bytes from http://tools.ietf.org/html/rfc2047#section-4.2
         /// </summary>
         private static readonly Regex QEncodingHexCodeRegEx = new Regex(@"(=(?<hexcode>[0-9a-fA-F][0-9a-fA-F]))", RegexOptions.Compiled);
@@ -50,9 +56,19 @@
         private static readonly Regex QEncodingSpaceRegEx = new Regex("_", RegexOptions.Compiled);
 
         /// <summary>
+        /// Format for an encoded string
+        /// </summary>
+        private const string EncodedStringFormat = @"=?{0}?{1}?{2}?=";
+
+        /// <summary>
+        /// Special characters, as defined by RFC2047
+        /// </summary>
+        private static readonly char[] SpecialCharacters = { '(', ')', '<', '>', '@', ',', ';', ':', '<', '>', '/', '[', ']', '?', '.', '=', '\t' };
+
+        /// <summary>
         /// Represents a content encoding type defined in RFC2047
         /// </summary>
-        private enum ContentEncoding
+        public enum ContentEncoding
         {
             /// <summary>
             /// Unknown / invalid encoding
@@ -70,6 +86,39 @@
             /// http://tools.ietf.org/html/rfc2047#section-4.1
             /// </summary>
             Base64
+        }
+
+        /// <summary>
+        /// Encode a string into RFC2047
+        /// </summary>
+        /// <param name="plainString">Plain string to encode</param>
+        /// <param name="contentEncoding">Content encoding to use</param>
+        /// <param name="characterSet">Character set used by plainString</param>
+        /// <returns>Encoded string</returns>
+        public static string Encode(string plainString, ContentEncoding contentEncoding = ContentEncoding.QEncoding, string characterSet = "iso-8859-1")
+        {
+            if (String.IsNullOrEmpty(plainString))
+            {
+                return String.Empty;
+            }
+
+            if (contentEncoding == ContentEncoding.Unknown)
+            {
+                throw new ArgumentException("contentEncoding cannot be unknown for encoding.", "contentEncoding");
+            }
+
+            if (!IsSupportedCharacterSet(characterSet))
+            {
+                throw new ArgumentException("characterSet is not supported", "characterSet");
+            }
+
+            var textEncoding = Encoding.GetEncoding(characterSet);
+
+            var encoder = GetContentEncoder(contentEncoding);
+
+            var encodedContent = encoder.Invoke(plainString, textEncoding);
+
+            return BuildEncodedString(characterSet, contentEncoding, encodedContent);
         }
 
         /// <summary>
@@ -160,6 +209,25 @@
         }
 
         /// <summary>
+        /// Gets the content encoder delegate for the given content encoding type
+        /// </summary>
+        /// <param name="contentEncoding">Content encoding type</param>
+        /// <returns>Encoding delegate</returns>
+        private static Func<string, Encoding, string> GetContentEncoder(ContentEncoding contentEncoding)
+        {
+            switch (contentEncoding)
+            {
+                case ContentEncoding.Base64:
+                    return EncodeBase64;
+                case ContentEncoding.QEncoding:
+                    return EncodeQEncoding;
+                default:
+                    // Will never get here, but return a "null" delegate anyway
+                    return (s, e) => String.Empty;
+            }
+        }
+
+        /// <summary>
         /// Decodes a base64 encoded string
         /// </summary>
         /// <param name="encodedText">Encoded text</param>
@@ -170,6 +238,19 @@
             var encodedBytes = Convert.FromBase64String(encodedText);
 
             return textEncoder.GetString(encodedBytes);
+        }
+
+        /// <summary>
+        /// Encodes a base64 encoded string
+        /// </summary>
+        /// <param name="plainText">Plain text</param>
+        /// <param name="textEncoder">Encoding instance for the code page required</param>
+        /// <returns>Encoded string</returns>
+        private static string EncodeBase64(string plainText, Encoding textEncoder)
+        {
+            var plainTextBytes = textEncoder.GetBytes(plainText);
+
+            return Convert.ToBase64String(plainTextBytes);
         }
 
         /// <summary>
@@ -198,6 +279,95 @@
                 });
 
             return decodedText;
+        }
+        
+        /// <summary>
+        /// Encodes a "Q encoded" string
+        /// </summary>
+        /// <param name="plainText">Plain text</param>
+        /// <param name="textEncoder">Encoding instance for the code page required</param>
+        /// <returns>Encoded string</returns>
+        private static string EncodeQEncoding(string plainText, Encoding textEncoder)
+        {
+            if (textEncoder.GetByteCount(plainText) != plainText.Length)
+            {
+                throw new ArgumentException("Q encoding only supports single byte encodings", "textEncoder");    
+            }
+
+            var specialBytes = textEncoder.GetBytes(SpecialCharacters);
+
+            var sb = new StringBuilder(plainText.Length);
+
+            var plainBytes = textEncoder.GetBytes(plainText);
+
+            // Replace "high" values
+            for (int i = 0; i < plainBytes.Length; i++)
+            {
+                if (plainBytes[i] <= 127 && !specialBytes.Contains(plainBytes[i]))
+                {
+                    sb.Append(Convert.ToChar(plainBytes[i]));
+                }
+                else
+                {
+                    sb.Append("=");
+                    sb.Append(Convert.ToString(plainBytes[i], 16).ToUpper());
+                }
+            }
+
+            return sb.ToString().Replace(" ", "_");
+        }
+
+        /// <summary>
+        /// Builds the full encoded string representation
+        /// </summary>
+        /// <param name="characterSet">Characterset to use</param>
+        /// <param name="contentEncoding">Content encoding to use</param>
+        /// <param name="encodedContent">Content, encoded to the above parameters</param>
+        /// <returns>Valid RFC2047 string</returns>
+        private static string BuildEncodedString(string characterSet, ContentEncoding contentEncoding, string encodedContent)
+        {
+            var encodingCharacter = String.Empty;
+
+            switch (contentEncoding)
+            {
+                case ContentEncoding.Base64:
+                    encodingCharacter = "B";
+                    break;
+                case ContentEncoding.QEncoding:
+                    encodingCharacter = "Q";
+                    break;
+            }
+
+            var wrapperLength = string.Format(EncodedStringFormat, characterSet, encodingCharacter, String.Empty).Length;
+            var chunkLength = MaxLineLength - wrapperLength;
+
+            if (encodedContent.Length <= chunkLength)
+            {
+                return string.Format(EncodedStringFormat, characterSet, encodingCharacter, encodedContent);
+            }
+
+            var sb = new StringBuilder();
+            foreach (var chunk in SplitStringByLength(encodedContent, chunkLength))
+            {
+                sb.AppendFormat(EncodedStringFormat, characterSet, encodingCharacter, chunk);
+                sb.Append("\r\n ");
+            }
+
+            return sb.ToString();
+        }
+
+        /// <summary>
+        /// Splits a string into chunks
+        /// </summary>
+        /// <param name="inputString">Input string</param>
+        /// <param name="chunkSize">Size of each chunk</param>
+        /// <returns>String collection of chunked strings</returns>
+        public static IEnumerable<string> SplitStringByLength(this string inputString, int chunkSize)
+        {
+            for (int index = 0; index < inputString.Length; index += chunkSize)
+            {
+                yield return inputString.Substring(index, Math.Min(chunkSize, inputString.Length - index));
+            }
         }
     }
 }

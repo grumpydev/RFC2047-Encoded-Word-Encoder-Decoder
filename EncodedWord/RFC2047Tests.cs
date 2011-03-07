@@ -1,6 +1,7 @@
 namespace EncodedWord
 {
     using System;
+    using System.Linq;
     using System.Text;
 
     using Xunit;
@@ -97,6 +98,77 @@ namespace EncodedWord
             var output = RFC2047.Decode(input);
 
             Assert.Equal(@"¡Hola, señor!¡Hola, señor!", output);
+        }
+
+        [Fact]
+        public void Should_return_empty_string_when_encoding_empty_string()
+        {
+            var input = @"";
+
+            var output = RFC2047.Encode("");
+
+            Assert.Equal("", output);
+        }
+
+        [Fact]
+        public void Should_throw_when_encoding_with_unknown_content_encoding()
+        {
+            Assert.Throws(typeof(ArgumentException), () => RFC2047.Encode("test", RFC2047.ContentEncoding.Unknown));
+        }
+
+        [Fact]
+        public void Should_throw_when_encoding_with_invalid_character_set()
+        {
+            Assert.Throws(typeof(ArgumentException), () => RFC2047.Encode("test", RFC2047.ContentEncoding.QEncoding, "fake"));
+        }
+
+        [Fact]
+        public void Should_encode_to_b_encoding()
+        {
+            var inputText = "Some test text";
+            var inputCharacterSet = "iso-8859-1";
+            var encodingType = RFC2047.ContentEncoding.Base64;
+
+            var result = RFC2047.Encode(inputText, encodingType, inputCharacterSet);
+
+            Assert.Equal("=?iso-8859-1?B?U29tZSB0ZXN0IHRleHQ=?=", result);
+        }
+
+        [Fact]
+        public void Should_encode_to_q_encoding()
+        {
+            var inputText = "¡Hola, señor!";
+            var inputCharacterSet = "iso-8859-1";
+            var encodingType = RFC2047.ContentEncoding.QEncoding;
+
+            var result = RFC2047.Encode(inputText, encodingType, inputCharacterSet);
+
+            Assert.Equal("=?iso-8859-1?Q?=A1Hola=2C_se=F1or!?=", result);
+        }
+
+        [Fact]
+        public void Should_decode_q_encoded_text_back_to_original_text()
+        {
+            var inputText = "¡Hola, señor!";
+            var inputCharacterSet = "iso-8859-1";
+            var encodingType = RFC2047.ContentEncoding.QEncoding;
+            var encoded = RFC2047.Encode(inputText, encodingType, inputCharacterSet);
+
+            var result = RFC2047.Decode(encoded);
+
+            Assert.Equal(inputText, result);
+        }
+
+        [Fact]
+        public void Should_add_separators_so_lines_do_not_exceed_75_characters()
+        {
+            var inputText = "This is some very long text. It should be split so no line exceeds 75 characters and should have the separator in between";
+            var inputCharacterSet = "iso-8859-1";
+            var encodingType = RFC2047.ContentEncoding.Base64;
+
+            var result = RFC2047.Encode(inputText, encodingType, inputCharacterSet).Split(new[] { "\r\n " }, StringSplitOptions.RemoveEmptyEntries);
+
+            Assert.False(result.Where(l => l.Length > 75).Any());
         }
     }
 }
