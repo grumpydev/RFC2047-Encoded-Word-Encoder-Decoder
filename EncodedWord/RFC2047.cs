@@ -347,7 +347,7 @@
             }
 
             var sb = new StringBuilder();
-            foreach (var chunk in SplitStringByLength(encodedContent, chunkLength))
+            foreach (var chunk in SplitStringByLength(encodedContent, chunkLength, encodedContent))
             {
                 sb.AppendFormat(EncodedStringFormat, characterSet, encodingCharacter, chunk);
                 sb.Append("\r\n ");
@@ -356,17 +356,27 @@
             return sb.ToString();
         }
 
-        /// <summary>
+          /// <summary>
         /// Splits a string into chunks
         /// </summary>
         /// <param name="inputString">Input string</param>
         /// <param name="chunkSize">Size of each chunk</param>
+        /// <param name="encoding">Encoding type</param>
         /// <returns>String collection of chunked strings</returns>
-        public static IEnumerable<string> SplitStringByLength(this string inputString, int chunkSize)
+        public static IEnumerable<string> SplitStringByLength(this string inputString, int chunkSize, ContentEncoding encoding)
         {
             for (int index = 0; index < inputString.Length; index += chunkSize)
             {
-                yield return inputString.Substring(index, Math.Min(chunkSize, inputString.Length - index));
+                var chunk = inputString.Substring(index, Math.Min(chunkSize, inputString.Length - index));
+                if (encoding == ContentEncoding.QEncoding && chunk.EndsWith("="))
+                {
+                    //fix - don't split a Q-word into two different chunks right in the middle of a word 
+                    // e.g. if the last part of your chunk ends at the = used to encode a word, just
+                    //bring that = character to the next chunk
+                    chunk = chunk.Substring(0, chunk.Length - 1);
+                    index--;
+                }
+                yield return chunk;
             }
         }
     }
